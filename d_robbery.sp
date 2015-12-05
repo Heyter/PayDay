@@ -391,8 +391,13 @@ public ve_spawn_OnStartTouch(ent, client)
 {
 	if (client > 0 && client <= MAXPLAYERS)
 	{
-		AcceptEntityInput(p_OwnedBag[client], "Kill");
-	
-		CGOPrintToChat(client, "{OLIVE}Вы получили ничего за мешок с деньгами");
+		if(p_haveBug[client] == true)
+		{
+			AcceptEntityInput(p_OwnedBag[client], "Kill");
+			CGOPrintToChat(client, "{OLIVE}Вы получили ничего за мешок с деньгами");
+			p_BugTake[client] = false;
+			p_haveBug[client] = false;
+			p_OwnedBag[client] = 0;
+		}
 	}
 }
