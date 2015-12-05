@@ -11,9 +11,9 @@ new Handle:h_kv_cfg;
 new Float:g_MoneyPoint[3];
 new Float:g_BackPoint[3];
 
-new Handle:t_PlayerTake[1];
+new Handle:t_PlayerTake[MAXPLAYERS+1];
 
-new g_MoneyBags[1];
+new g_MoneyBags[MONEYBAG_COUNT];
 
 public Plugin:myinfo = 
 { 
