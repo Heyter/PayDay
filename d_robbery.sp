@@ -11,9 +11,12 @@ new Handle:h_kv_cfg;
 new Float:g_MoneyPoint[3];
 new Float:g_BackPoint[3];
 
-new Handle:t_PlayerTake[1];
+new Handle:t_PlayerTake[MAXPLAYERS+1];
+new g_MoneyBags[MONEYBAG_COUNT];
 
-new g_MoneyBags[1];
+new bool:p_BugTake[MAXPLAYERS+1];
+new bool:p_haveBug[MAXPLAYERS+1];
+new p_OwnedBag[MAXPLAYERS+1];
 
 public Plugin:myinfo = 
 { 
@@ -38,6 +41,8 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 
 public OnPluginStart() 
 {
+	HookEvent("player_spawn", PlayerSpawn);
+	HookEvent("player_death", PlayerDeath);
 	HookEvent("round_start", RoundStart);
 	
 	RegAdminCmd("sm_bpos_reload", cmd_Reload, ADMFLAG_ROOT, "Reload cfgs");
@@ -48,8 +53,8 @@ public OnPluginStart()
 public OnMapStart()
 {
 	LoadCfg();
-	PrecacheModel("models/props/cs_italy/bin03.mdl", true);
 	PrecacheModel("models/props/cs_militia/footlocker01_closed.mdl", true);
+	PrecacheModel("models/props_vehicles/pickup_truck_2004.mdl", true)
 }
 
 LoadCfg()
@@ -122,6 +127,37 @@ stock bool:GetPlayerEye(client, Float:pos[3])
 	return false;
 }
 
+public RoundStart(Handle:event, const String:name[], bool:dontBroadcast) 
+{
+	func_SpawnBackPoint();
+	func_SpawnMoneyPack(MONEYBAG_COUNT);
+}
+
+public PlayerSpawn(Handle:event, const String:name[], bool:dontBroadcast) 
+{
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	p_BugTake[client] = false;
+	p_haveBug[client] = false;
+	p_OwnedBag[client] = 0;
+}
+
+public PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast) 
+{
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	if(client > 0 && IsClientInGame(client))
+	{
+		AcceptEntityInput(p_OwnedBag[client], "TurnOff");
+		
+		SetEntProp(p_OwnedBag[client], Prop_Send, "m_usSolidFlags",  152);
+		SetEntProp(p_OwnedBag[client], Prop_Send, "m_CollisionGroup", 8);
+		
+		p_OwnedBag[client] = 0;
+		p_haveBug[client] = false;
+		//new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	}
+	
+}
+
 public bool:TraceEntityFilterPlayers(entity, contentsMask)
 {
 	return (!(0 < entity <= MaxClients));
@@ -164,12 +200,6 @@ public Action:cmd_Reload(client, argc)
 	ReplyToCommand(client, "Настройки перезагружены!");
 }
 
-
-public RoundStart(Handle:event, const String:name[], bool:dontBroadcast) 
-{
-	func_SpawnMoneyPack(MONEYBAG_COUNT);
-}
-
 public Action:OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3])
 {
 	if(!IsClientInGame(client)) return;
@@ -178,36 +208,66 @@ public Action:OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 	{
 		if(IsPlayerAlive(client))
 		{ 
-			for(new i; i < MONEYBAG_COUNT; i++)
+			new Ent;
+			new String:Classname[32];
+		   
+			Ent = GetClientAimTarget(client, false);
+		   
+			if (Ent != -1 && IsValidEntity(Ent) && p_BugTake[client] == false && p_haveBug[client] == false)
 			{
-				if(GetClientAimTarget(client) == g_MoneyBags[i]) 
+				new Float:origin[3], Float:clientent[3];
+			   
+				GetEntPropVector(Ent, Prop_Send, "m_vecOrigin", origin);
+				GetClientAbsOrigin(client, clientent);
+			   
+				new Float:distance = GetVectorDistance(origin, clientent);
+				if (distance < 60)
 				{
-					SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
-					SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 3);
-					SetEntityRenderColor(client, 255, 0, 0, 0);
-					SetEntityMoveType(client, MOVETYPE_NONE);
-					//AcceptEntityInpit(g_MoneyBags, "Kill");
-					
-					new Handle:pack;
-					WritePackCell(pack, client);
-					WritePackCell(pack, i);
-
-					t_PlayerTake[client] = CreateDataTimer(3.0, tm_PlayerTake, pack);
+					GetEdictClassname(Ent, Classname, sizeof(Classname));
+				   
+					decl String:modelname[128];
+					GetEntPropString(Ent, Prop_Data, "m_ModelName", modelname, sizeof(modelname));
+				   
+					if (StrEqual(modelname, "models/props/cs_militia/footlocker01_closed.mdl"))
+					{
+						p_BugTake[client] = true;
+						SetEntityMoveType(client, MOVETYPE_NONE);
+						SetEntityRenderColor(client, 255, 0, 0, 255);
+						
+						new Handle:datapack = INVALID_HANDLE;
+						t_PlayerTake[client] = CreateDataTimer(3.0, tm_PlayerTake, datapack, TIMER_FLAG_NO_MAPCHANGE);
+						WritePackCell(datapack, client);
+						WritePackCell(datapack, Ent);
+						ResetPack(datapack);
+						SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
+						SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 3);
+						CGOPrintToChat(client, "{LIGHTOLIVE}Взятие ящика в течении 3х секунд");
+					}
 				}
 			}
 		}
 	}
-	else if(t_PlayerTake[client]) 
+	else if(p_BugTake[client] == true)
 	{	
-		KillTimer(t_PlayerTake[client]);
-		CloseHandle(pack);
-		t_PlayerTake[client] = INVALID_HANDLE;
+		func_UnTakeBag(client);
 	}
+} 
+
+public func_UnTakeBag(client)
+{
+	p_BugTake[client] = false;
+	SetEntityMoveType(client, MOVETYPE_WALK);
+	SetEntityRenderColor(client, 255, 255, 255, 255);
+	
+	SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
+	SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 0);
+	CGOPrintToChat(client, "{LIGHTOLIVE}Взятие завершено");
+	if(t_PlayerTake[client]) KillTimer(t_PlayerTake[client]);
+	t_PlayerTake[client] = INVALID_HANDLE;
 }
 
 public Action:tm_PlayerTake(Handle:timer, Handle:pack)
 {
-	ResetPack(pack);
 	new client = ReadPackCell(pack);
 	new ent = ReadPackCell(pack);
     
@@ -225,22 +285,52 @@ public Action:tm_PlayerTake(Handle:timer, Handle:pack)
 		GetClientAbsOrigin(client,p_pos1);
 		GetClientAbsAngles(client,p_angle1);
 		
-		p_pos1[2] += 30.0;	
+	/*	p_pos1[2] -= 20.0;	
+		p_pos1[1] += 25.0;
 		p_angle1[1] += 70.0;
+		p_angle1[2] += 90.0;*/
+		
+		decl Float:p_bagOr[3];
+		decl Float:p_bagAng[3];
+		decl Float:p_bagForward[3];
+		decl Float:p_bagRight[3];
+		decl Float:p_bagUp[3];
+		GetClientAbsOrigin(client,p_bagOr);
+		GetClientAbsAngles(client,p_bagAng);
+		
+		p_bagAng[0] += 0.0;
+		p_bagAng[1] += 70.0; 
+		p_bagAng[2] -= 90.0;
+		
+		new Float:p_bagOffset[3];
+		p_bagOffset[0] = 0.0;
+		p_bagOffset[1] = 0.0;
+		p_bagOffset[2] = 20.0;
+		
+		GetAngleVectors(p_bagAng, p_bagForward, p_bagRight, p_bagUp);
+		
+		p_bagOr[0] += p_bagRight[0]*p_bagOffset[0]+p_bagForward[0]*p_bagOffset[1]+p_bagUp[0]*p_bagOffset[2];
+		p_bagOr[1] += p_bagRight[1]*p_bagOffset[0]+p_bagForward[1]*p_bagOffset[1]+p_bagUp[1]*p_bagOffset[2];
+		p_bagOr[2] += p_bagRight[2]*p_bagOffset[0]+p_bagForward[2]*p_bagOffset[1]+p_bagUp[2]*p_bagOffset[2];
 		
 		AcceptEntityInput(ent, "TurnOn", ent, ent, 0);
 
 		// Teleport the hat to the right position and attach it
-		TeleportEntity(ent, p_pos1, p_angle1, NULL_VECTOR); 
+		TeleportEntity(ent, p_bagOr, p_bagAng, NULL_VECTOR); 
 			
 		SetVariantString("!activator");
 		AcceptEntityInput(ent, "SetParent", client, ent, 0);
-			
+		
+		SetEntProp(ent, Prop_Send, "m_usSolidFlags", 8);
+		SetEntProp(ent, Prop_Send, "m_CollisionGroup", 1);
+		SetEntPropEnt(ent, Prop_Send, "m_hOwnerEntity", client);
+		
 		SetVariantString("facemask");
 		AcceptEntityInput(ent, "SetParentAttachmentMaintainOffset", ent, ent, 0);
 		
 		CGOPrintToChat(client, "{LIGHTOLIVE}Вы взяли мешок с деньгами");
-		
+		p_haveBug[client] = true;
+		p_OwnedBag[client] = ent;
 		
 	}
 	KillTimer(t_PlayerTake[client]);
@@ -264,8 +354,8 @@ func_SpawnMoneyPack(count)
 		DispatchKeyValue(ent, "spawnflags", "0");	
 		DispatchSpawn(ent);
 		
-		SetEntProp(ent, Prop_Send, "m_usSolidFlags", 8);
-		SetEntProp(ent, Prop_Send, "m_CollisionGroup", 1);
+		SetEntProp(ent, Prop_Send, "m_usSolidFlags",  152);
+		SetEntProp(ent, Prop_Send, "m_CollisionGroup", 8);
 		
 		float angles[3];
 		angles[0] = GetRandomFloat(-360.0, 360.0);
@@ -273,5 +363,36 @@ func_SpawnMoneyPack(count)
 		angles[2] = GetRandomFloat(300.0, 360.0);
 		TeleportEntity(ent, g_MoneyPoint, NULL_VECTOR, NULL_VECTOR);		
 		TeleportEntity(ent, NULL_VECTOR, NULL_VECTOR, angles);
+	}
+}
+
+func_SpawnBackPoint()
+{
+	new ent = CreateEntityByName("prop_physics_override");
+	decl String:targetname[64];
+
+	FormatEx(targetname, sizeof(targetname), "back_%i", ent);
+
+	DispatchKeyValue(ent, "model", "models/props_vehicles/pickup_truck_2004.mdl");
+	DispatchKeyValue(ent, "physicsmode", "2");
+	DispatchKeyValue(ent, "massScale", "100.0");
+	DispatchKeyValue(ent, "targetname", targetname);
+	DispatchKeyValue(ent, "spawnflags", "0");	
+	DispatchSpawn(ent);
+	
+	SetEntProp(ent, Prop_Send, "m_usSolidFlags",  152);
+	SetEntProp(ent, Prop_Send, "m_CollisionGroup", 8);
+	
+	TeleportEntity(ent, g_BackPoint, NULL_VECTOR, NULL_VECTOR);	
+	SDKHook(ent, SDKHook_StartTouch, ve_spawn_OnStartTouch);		
+}
+
+public ve_spawn_OnStartTouch(ent, client)
+{
+	if (client > 0 && client <= MAXPLAYERS)
+	{
+		AcceptEntityInput(p_OwnedBag[client], "Kill");
+	
+		CGOPrintToChat(client, "{OLIVE}Вы получили ничего за мешок с деньгами");
 	}
 }
