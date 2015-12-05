@@ -43,6 +43,7 @@ public OnPluginStart()
 {
 	HookEvent("player_spawn", PlayerSpawn);
 	HookEvent("player_death", PlayerDeath);
+	HookEvent("round_start", RoundStart);
 	
 	RegAdminCmd("sm_bpos_reload", cmd_Reload, ADMFLAG_ROOT, "Reload cfgs");
 	RegAdminCmd("sm_mpoint_set", cmd_SetMoneyPoint, ADMFLAG_ROOT, "Set money position");
@@ -124,6 +125,12 @@ stock bool:GetPlayerEye(client, Float:pos[3])
 
 	CloseHandle(trace);
 	return false;
+}
+
+public RoundStart(Handle:event, const String:name[], bool:dontBroadcast) 
+{
+	func_SpawnBackPoint();
+	func_SpawnMoneyPack(MONEYBAG_COUNT);
 }
 
 public PlayerSpawn(Handle:event, const String:name[], bool:dontBroadcast) 
@@ -359,14 +366,14 @@ func_SpawnMoneyPack(count)
 	}
 }
 
-func_SpawnBackPoint(count)
+func_SpawnBackPoint()
 {
 	new ent = CreateEntityByName("prop_physics_override");
 	decl String:targetname[64];
 
 	FormatEx(targetname, sizeof(targetname), "back_%i", ent);
 
-	DispatchKeyValue(ent, "model", "models/props/cs_militia/footlocker01_closed.mdl");
+	DispatchKeyValue(ent, "model", "models/props_vehicles/pickup_truck_2004.mdl");
 	DispatchKeyValue(ent, "physicsmode", "2");
 	DispatchKeyValue(ent, "massScale", "100.0");
 	DispatchKeyValue(ent, "targetname", targetname);
