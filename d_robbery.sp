@@ -12,7 +12,6 @@ new Float:g_MoneyPoint[3];
 new Float:g_BackPoint[3];
 
 new Handle:t_PlayerTake[MAXPLAYERS+1];
-
 new g_MoneyBags[MONEYBAG_COUNT];
 
 public Plugin:myinfo = 
@@ -199,10 +198,17 @@ public Action:OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 	}
 	else if(t_PlayerTake[client]) 
 	{	
-		KillTimer(t_PlayerTake[client]);
-		CloseHandle(pack);
-		t_PlayerTake[client] = INVALID_HANDLE;
+		func_UnTakeBag(client);
 	}
+}
+
+public func_UnTakeBag(client)
+{
+	SetEntityMoveType(client, MOVETYPE_WALK);
+	SetEntityRenderColor(client, 255, 255, 255, 255);
+	
+	SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
+	SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 0);
 }
 
 public Action:tm_PlayerTake(Handle:timer, Handle:pack)
