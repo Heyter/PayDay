@@ -209,6 +209,8 @@ public func_UnTakeBag(client)
 	
 	SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
 	SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 0);
+	KillTimer(t_PlayerTake[client]);
+	t_PlayerTake[client] = INVALID_HANDLE;
 }
 
 public Action:tm_PlayerTake(Handle:timer, Handle:pack)
