@@ -16,6 +16,7 @@ new g_MoneyBags[MONEYBAG_COUNT];
 
 new bool:p_BugTake[MAXPLAYERS+1];
 new bool:p_haveBug[MAXPLAYERS+1];
+new p_OwnedBag[MAXPLAYERS+1];
 
 public Plugin:myinfo = 
 { 
@@ -40,7 +41,8 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 
 public OnPluginStart() 
 {
-	HookEvent("round_start", RoundStart);
+	HookEvent("player_spawn", PlayerSpawn);
+	HookEvent("player_death", PlayerDeath);
 	
 	RegAdminCmd("sm_bpos_reload", cmd_Reload, ADMFLAG_ROOT, "Reload cfgs");
 	RegAdminCmd("sm_mpoint_set", cmd_SetMoneyPoint, ADMFLAG_ROOT, "Set money position");
@@ -50,8 +52,8 @@ public OnPluginStart()
 public OnMapStart()
 {
 	LoadCfg();
-	PrecacheModel("models/props/cs_italy/bin03.mdl", true);
 	PrecacheModel("models/props/cs_militia/footlocker01_closed.mdl", true);
+	PrecacheModel("models/props_vehicles/pickup_truck_2004.mdl", true)
 }
 
 LoadCfg()
@@ -124,6 +126,31 @@ stock bool:GetPlayerEye(client, Float:pos[3])
 	return false;
 }
 
+public PlayerSpawn(Handle:event, const String:name[], bool:dontBroadcast) 
+{
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	p_BugTake[client] = false;
+	p_haveBug[client] = false;
+	p_OwnedBag[client] = 0;
+}
+
+public PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast) 
+{
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	if(client > 0 && IsClientInGame(client))
+	{
+		AcceptEntityInput(p_OwnedBag[client], "TurnOff");
+		
+		SetEntProp(p_OwnedBag[client], Prop_Send, "m_usSolidFlags",  152);
+		SetEntProp(p_OwnedBag[client], Prop_Send, "m_CollisionGroup", 8);
+		
+		p_OwnedBag[client] = 0;
+		p_haveBug[client] = false;
+		//new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	}
+	
+}
+
 public bool:TraceEntityFilterPlayers(entity, contentsMask)
 {
 	return (!(0 < entity <= MaxClients));
@@ -164,17 +191,6 @@ public Action:cmd_Reload(client, argc)
 	}
 	LoadCfg();
 	ReplyToCommand(client, "Настройки перезагружены!");
-}
-
-
-public RoundStart(Handle:event, const String:name[], bool:dontBroadcast) 
-{
-	func_SpawnMoneyPack(MONEYBAG_COUNT);
-	for(new i=1; 1<=GetMaxClients(); i++)
-	{
-		p_BugTake[i] = false;
-		p_haveBug[i] = false;
-	}
 }
 
 public Action:OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3])
@@ -276,7 +292,7 @@ public Action:tm_PlayerTake(Handle:timer, Handle:pack)
 		GetClientAbsAngles(client,p_bagAng);
 		
 		p_bagAng[0] += 0.0;
-		p_bagAng[1] += 70.0;
+		p_bagAng[1] += 70.0; 
 		p_bagAng[2] -= 90.0;
 		
 		new Float:p_bagOffset[3];
@@ -307,6 +323,7 @@ public Action:tm_PlayerTake(Handle:timer, Handle:pack)
 		
 		CGOPrintToChat(client, "{LIGHTOLIVE}Вы взяли мешок с деньгами");
 		p_haveBug[client] = true;
+		p_OwnedBag[client] = ent;
 		
 	}
 	KillTimer(t_PlayerTake[client]);
@@ -339,5 +356,36 @@ func_SpawnMoneyPack(count)
 		angles[2] = GetRandomFloat(300.0, 360.0);
 		TeleportEntity(ent, g_MoneyPoint, NULL_VECTOR, NULL_VECTOR);		
 		TeleportEntity(ent, NULL_VECTOR, NULL_VECTOR, angles);
+	}
+}
+
+func_SpawnBackPoint(count)
+{
+	new ent = CreateEntityByName("prop_physics_override");
+	decl String:targetname[64];
+
+	FormatEx(targetname, sizeof(targetname), "back_%i", ent);
+
+	DispatchKeyValue(ent, "model", "models/props/cs_militia/footlocker01_closed.mdl");
+	DispatchKeyValue(ent, "physicsmode", "2");
+	DispatchKeyValue(ent, "massScale", "100.0");
+	DispatchKeyValue(ent, "targetname", targetname);
+	DispatchKeyValue(ent, "spawnflags", "0");	
+	DispatchSpawn(ent);
+	
+	SetEntProp(ent, Prop_Send, "m_usSolidFlags",  152);
+	SetEntProp(ent, Prop_Send, "m_CollisionGroup", 8);
+	
+	TeleportEntity(ent, g_BackPoint, NULL_VECTOR, NULL_VECTOR);	
+	SDKHook(ent, SDKHook_StartTouch, ve_spawn_OnStartTouch);		
+}
+
+public ve_spawn_OnStartTouch(ent, client)
+{
+	if (client > 0 && client <= MAXPLAYERS)
+	{
+		AcceptEntityInput(p_OwnedBag[client], "Kill");
+	
+		CGOPrintToChat(client, "{OLIVE}Вы получили ничего за мешок с деньгами");
 	}
 }
