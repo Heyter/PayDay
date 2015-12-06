@@ -16,10 +16,9 @@ new Float:g_MoneyPoint[3];
 new Float:g_BackPoint[3];
 
 new Handle:t_PlayerTake[MAXPLAYERS+1];
-new g_MoneyBags[MONEYBAG_COUNT];
 
 new bool:p_BugTake[MAXPLAYERS+1];
-new bool:p_haveBug[MAXPLAYERS+1];
+new bool:p_haveBag[MAXPLAYERS+1];
 new p_OwnedBag[MAXPLAYERS+1];
 
 new Handle:t_RoundEnd;
@@ -138,7 +137,7 @@ stock bool:GetPlayerEye(client, Float:pos[3])
 
 public RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) 
 {
-	KillTimer(t_RoundEnd);
+	if(t_RoundEnd)KillTimer(t_RoundEnd);
 	t_RoundEnd = INVALID_HANDLE;
 }
 
@@ -147,7 +146,21 @@ public RoundStart(Handle:event, const String:name[], bool:dontBroadcast)
 	func_SpawnBackPoint();
 	func_SpawnMoneyPack(MONEYBAG_COUNT);
 	g_BagCount = 0;
+	if(t_RoundEnd) KillTimer(t_RoundEnd);
 	t_RoundEnd = CreateTimer((GetConVarFloat(FindConVar("mp_roundtime")) * 60.0) - GetConVarFloat(FindConVar("mp_freezetime")) - 1.0, tm_OnTimerEndRound);
+	new maxent = GetMaxEntities();
+	new String:ent[64];
+	for (new i = GetMaxClients(); i < maxent; i++)
+	{
+		if (IsValidEdict(i) && IsValidEntity(i))
+		{
+			GetEdictClassname(i, ent, sizeof(ent));
+			if (StrContains(ent, "hostage_entity") != -1)
+			{
+				AcceptEntityInput(i,"Kill");
+			}
+		}
+	}
 }
 
 public Action:tm_OnTimerEndRound(Handle:timer)
@@ -161,7 +174,7 @@ public PlayerSpawn(Handle:event, const String:name[], bool:dontBroadcast)
 {
 	new client = GetClientOfUserId(GetEventInt(event, "userid"));
 	p_BugTake[client] = false;
-	p_haveBug[client] = false;
+	p_haveBag[client] = false;
 	p_OwnedBag[client] = 0;
 }
 
@@ -170,15 +183,17 @@ public PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast)
 	new client = GetClientOfUserId(GetEventInt(event, "userid"));
 	if(client > 0 && IsClientInGame(client))
 	{
-		AcceptEntityInput(p_OwnedBag[client], "TurnOff");
-		
-		SetEntProp(p_OwnedBag[client], Prop_Send, "m_usSolidFlags",  152);
-		SetEntProp(p_OwnedBag[client], Prop_Send, "m_CollisionGroup", 8);
-		
-		p_OwnedBag[client] = 0;
-		p_haveBug[client] = false;
+		if(p_haveBag[client] == true)
+		{
+			AcceptEntityInput(p_OwnedBag[client], "Kill");
+			new Float:vect[3];
+			GetClientEyePosition(client, vect);
+			func_SpawnMoneyPackOnPoint(vect);
+			p_OwnedBag[client] = 0;
+			p_haveBag[client] = false;
+		}
 		//new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	}
+	} 
 	
 }
 
@@ -230,14 +245,14 @@ public Action:OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 	
 	if(buttons & IN_USE)
 	{
-		if(IsPlayerAlive(client))
+		if(IsPlayerAlive(client) && GetClientTeam(client) == 2)
 		{ 
 			new Ent;
 			new String:Classname[32];
 		   
 			Ent = GetClientAimTarget(client, false);
 		   
-			if (Ent != -1 && IsValidEntity(Ent) && p_BugTake[client] == false && p_haveBug[client] == false)
+			if (Ent != -1 && IsValidEntity(Ent) && p_BugTake[client] == false && p_haveBag[client] == false)
 			{
 				new Float:origin[3], Float:clientent[3];
 			   
@@ -285,7 +300,7 @@ public func_UnTakeBag(client)
 	
 	SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
 	SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 0);
-	CGOPrintToChat(client, "{LIGHTOLIVE}Взятие отменено");
+	CGOPrintToChat(client, "{LIGHTOLIVE}Взятие завершено");
 	if(t_PlayerTake[client]) KillTimer(t_PlayerTake[client]);
 	t_PlayerTake[client] = INVALID_HANDLE;
 }
@@ -353,7 +368,7 @@ public Action:tm_PlayerTake(Handle:timer, Handle:pack)
 		AcceptEntityInput(ent, "SetParentAttachmentMaintainOffset", ent, ent, 0);
 		
 		CGOPrintToChat(client, "{LIGHTOLIVE}Вы взяли мешок с деньгами");
-		p_haveBug[client] = true;
+		p_haveBag[client] = true;
 		p_OwnedBag[client] = ent;
 		
 	}
@@ -366,7 +381,6 @@ func_SpawnMoneyPack(count)
 	for(new t_i; t_i < count; t_i++)
 	{
 		new ent = CreateEntityByName("prop_physics_override");
-		g_MoneyBags[t_i] = ent;
 		decl String:targetname[64];
 
 		FormatEx(targetname, sizeof(targetname), "money_%i", ent);
@@ -388,6 +402,26 @@ func_SpawnMoneyPack(count)
 		TeleportEntity(ent, g_MoneyPoint, NULL_VECTOR, NULL_VECTOR);		
 		TeleportEntity(ent, NULL_VECTOR, NULL_VECTOR, angles);
 	}
+}
+
+func_SpawnMoneyPackOnPoint(Float:vect[3])
+{
+	new ent = CreateEntityByName("prop_physics_override");
+	decl String:targetname[64];
+
+	FormatEx(targetname, sizeof(targetname), "money_%i", ent);
+
+	DispatchKeyValue(ent, "model", MONEYBAG_MODEL);
+	DispatchKeyValue(ent, "physicsmode", "2");
+	DispatchKeyValue(ent, "massScale", "100.0");
+	DispatchKeyValue(ent, "targetname", targetname);
+	DispatchKeyValue(ent, "spawnflags", "0");	
+	DispatchSpawn(ent);
+	
+	SetEntProp(ent, Prop_Send, "m_usSolidFlags",  152);
+	SetEntProp(ent, Prop_Send, "m_CollisionGroup", 8);
+	
+	TeleportEntity(ent, vect, NULL_VECTOR, NULL_VECTOR);		
 }
 
 func_SpawnBackPoint()
@@ -415,14 +449,15 @@ public ve_spawn_OnStartTouch(ent, client)
 {
 	if (client > 0 && client <= MAXPLAYERS)
 	{
-		if(p_haveBug[client] == true)
+		if(p_haveBag[client] == true)
 		{
 			AcceptEntityInput(p_OwnedBag[client], "Kill");
-			CGOPrintToChatAll("{LIGHTRED}%N {LIGHTOLIVE}доставил мешок с деньгами к точке сбора. {OLIVE}Осталось %d", client, MONEYBAG_COUNT-g_BagCount);
+			
 			p_BugTake[client] = false;
-			p_haveBug[client] = false;
+			p_haveBag[client] = false;
 			p_OwnedBag[client] = 0;
 			g_BagCount++;
+			CGOPrintToChatAll("{LIGHTRED}%N {LIGHTOLIVE}доставил мешок с деньгами к точке сбора. {OLIVE}Осталось %d", client, MONEYBAG_COUNT-g_BagCount);
 			if(g_BagCount == MONEYBAG_COUNT) CS_TerminateRound(10.0, CSRoundEnd_TerroristWin);
 		}
 	}
