@@ -1,9 +1,13 @@
 #include <sourcemod>
+#include <cstrike>
 #include <sdktools>
 #include <csgo_colors>
 #include <sdkhooks>
 
 #define MONEYBAG_COUNT 5
+
+#define MONEYBAG_MODEL "models/props/cs_militia/footlocker01_closed.mdl"
+#define BACKPOINT_MODEL "models/props_vehicles/pickup_truck_2004.mdl"
 
 new String:g_cfg_file[PLATFORM_MAX_PATH];
 new String:g_cMap[34];
@@ -17,6 +21,10 @@ new g_MoneyBags[MONEYBAG_COUNT];
 new bool:p_BugTake[MAXPLAYERS+1];
 new bool:p_haveBug[MAXPLAYERS+1];
 new p_OwnedBag[MAXPLAYERS+1];
+
+new Handle:t_RoundEnd;
+
+new g_BagCount;
 
 public Plugin:myinfo = 
 { 
@@ -44,6 +52,7 @@ public OnPluginStart()
 	HookEvent("player_spawn", PlayerSpawn);
 	HookEvent("player_death", PlayerDeath);
 	HookEvent("round_start", RoundStart);
+	HookEvent("round_end", RoundEnd);
 	
 	RegAdminCmd("sm_bpos_reload", cmd_Reload, ADMFLAG_ROOT, "Reload cfgs");
 	RegAdminCmd("sm_mpoint_set", cmd_SetMoneyPoint, ADMFLAG_ROOT, "Set money position");
@@ -53,8 +62,8 @@ public OnPluginStart()
 public OnMapStart()
 {
 	LoadCfg();
-	PrecacheModel("models/props/cs_militia/footlocker01_closed.mdl", true);
-	PrecacheModel("models/props_vehicles/pickup_truck_2004.mdl", true)
+	PrecacheModel(MONEYBAG_MODEL, true);
+	PrecacheModel(BACKPOINT_MODEL, true)
 }
 
 LoadCfg()
@@ -127,10 +136,25 @@ stock bool:GetPlayerEye(client, Float:pos[3])
 	return false;
 }
 
+public RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) 
+{
+	KillTimer(t_RoundEnd);
+	t_RoundEnd = INVALID_HANDLE;
+}
+
 public RoundStart(Handle:event, const String:name[], bool:dontBroadcast) 
 {
 	func_SpawnBackPoint();
 	func_SpawnMoneyPack(MONEYBAG_COUNT);
+	g_BagCount = 0;
+	t_RoundEnd = CreateTimer((GetConVarFloat(FindConVar("mp_roundtime")) * 60.0) - GetConVarFloat(FindConVar("mp_freezetime")) - 1.0, tm_OnTimerEndRound);
+}
+
+public Action:tm_OnTimerEndRound(Handle:timer)
+{
+	CS_TerminateRound(10.0, CSRoundEnd_CTWin);
+	KillTimer(timer);
+	t_RoundEnd = INVALID_HANDLE;
 }
 
 public PlayerSpawn(Handle:event, const String:name[], bool:dontBroadcast) 
@@ -228,7 +252,7 @@ public Action:OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 					decl String:modelname[128];
 					GetEntPropString(Ent, Prop_Data, "m_ModelName", modelname, sizeof(modelname));
 				   
-					if (StrEqual(modelname, "models/props/cs_militia/footlocker01_closed.mdl"))
+					if (StrEqual(modelname, MONEYBAG_MODEL))
 					{
 						p_BugTake[client] = true;
 						SetEntityMoveType(client, MOVETYPE_NONE);
@@ -241,7 +265,7 @@ public Action:OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 						ResetPack(datapack);
 						SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
 						SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 3);
-						CGOPrintToChat(client, "{LIGHTOLIVE}Взятие ящика в течении 3х секунд");
+						CGOPrintToChat(client, "{LIGHTOLIVE}Взятие ящика");
 					}
 				}
 			}
@@ -261,7 +285,7 @@ public func_UnTakeBag(client)
 	
 	SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", GetGameTime()); 
 	SetEntProp(client, Prop_Send, "m_iProgressBarDuration", 0);
-	CGOPrintToChat(client, "{LIGHTOLIVE}Взятие завершено");
+	CGOPrintToChat(client, "{LIGHTOLIVE}Взятие отменено");
 	if(t_PlayerTake[client]) KillTimer(t_PlayerTake[client]);
 	t_PlayerTake[client] = INVALID_HANDLE;
 }
@@ -347,9 +371,9 @@ func_SpawnMoneyPack(count)
 
 		FormatEx(targetname, sizeof(targetname), "money_%i", ent);
 
-		DispatchKeyValue(ent, "model", "models/props/cs_militia/footlocker01_closed.mdl");
+		DispatchKeyValue(ent, "model", MONEYBAG_MODEL);
 		DispatchKeyValue(ent, "physicsmode", "2");
-		DispatchKeyValue(ent, "massScale", "1.0");
+		DispatchKeyValue(ent, "massScale", "100.0");
 		DispatchKeyValue(ent, "targetname", targetname);
 		DispatchKeyValue(ent, "spawnflags", "0");	
 		DispatchSpawn(ent);
@@ -373,9 +397,9 @@ func_SpawnBackPoint()
 
 	FormatEx(targetname, sizeof(targetname), "back_%i", ent);
 
-	DispatchKeyValue(ent, "model", "models/props_vehicles/pickup_truck_2004.mdl");
+	DispatchKeyValue(ent, "model", BACKPOINT_MODEL);
 	DispatchKeyValue(ent, "physicsmode", "2");
-	DispatchKeyValue(ent, "massScale", "100.0");
+	DispatchKeyValue(ent, "massScale", "1000.0");
 	DispatchKeyValue(ent, "targetname", targetname);
 	DispatchKeyValue(ent, "spawnflags", "0");	
 	DispatchSpawn(ent);
@@ -394,10 +418,12 @@ public ve_spawn_OnStartTouch(ent, client)
 		if(p_haveBug[client] == true)
 		{
 			AcceptEntityInput(p_OwnedBag[client], "Kill");
-			CGOPrintToChat(client, "{OLIVE}Вы получили ничего за мешок с деньгами");
+			CGOPrintToChatAll("{LIGHTRED}%N {LIGHTOLIVE}доставил мешок с деньгами к точке сбора. {OLIVE}Осталось %d", client, MONEYBAG_COUNT-g_BagCount);
 			p_BugTake[client] = false;
 			p_haveBug[client] = false;
 			p_OwnedBag[client] = 0;
+			g_BagCount++;
+			if(g_BagCount == MONEYBAG_COUNT) CS_TerminateRound(10.0, CSRoundEnd_TerroristWin);
 		}
 	}
 }
